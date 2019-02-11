@@ -38,24 +38,69 @@ exports.__esModule = true;
 var express = require("express");
 var moment = require("moment");
 // import * as Web3 from 'web3'
+// FIXME: `import` not working; or disable warning
 var Web3 = require('web3');
+/* Initialize constants. */
 var HTTP_PROVIDER = 'https://mainnet.infura.io/v3/97524564d982452caee95b257a54064e';
 var App = /** @class */ (function () {
     function App() {
+        /* Initialize express. */
         this.express = express();
+        /* Initialize web3. */
+        this.web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER));
         this._mountRoutes();
         this._runMintTest();
         this._runWeb3Test();
-        this._runWeb3Test2();
     }
+    /**
+     * Mount Routes
+     */
     App.prototype._mountRoutes = function () {
+        var _this = this;
         var router = express.Router();
+        /* API Root. */
         router.get('/', function (req, res) {
             console.log('req.query', req.query);
+            /* Initialize message. */
+            var message = 'Welcome to Infinity Pool!';
+            /* Initialize system time. */
+            var systime = moment().unix();
+            /* Return JSON. */
             res.json({
-                message: 'Welcome to Infinity Pool! - ' + moment().unix()
+                message: message,
+                systime: systime
             });
         });
+        /* Pool Statistics. */
+        router.get('/stats', function (req, res) { return __awaiter(_this, void 0, void 0, function () {
+            var challengeNumber;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this._getChallengeNumber()["catch"](function (_error) { return console.error('ERROR: _getChallengeNumber', _error); })
+                        /* Return JSON. */
+                    ];
+                    case 1:
+                        challengeNumber = _a.sent();
+                        /* Return JSON. */
+                        res.json({
+                            challengeNumber: challengeNumber
+                        });
+                        return [2 /*return*/];
+                }
+            });
+        }); });
+        /* Profile Summary. */
+        router.get('/profile/:address', function (req, res) { return __awaiter(_this, void 0, void 0, function () {
+            return __generator(this, function (_a) {
+                console.log('req.params', req.params);
+                /* Return JSON. */
+                res.json({
+                    message: 'un-implemented'
+                });
+                return [2 /*return*/];
+            });
+        }); });
+        /* Use router. */
         this.express.use('/', router);
     };
     App.prototype._runMintTest = function () {
@@ -78,33 +123,33 @@ var App = /** @class */ (function () {
             });
         });
     };
-    App.prototype._runWeb3Test2 = function () {
-        return __awaiter(this, void 0, void 0, function () {
-            var from, pk, web3, contractAddress, abi, gasPrice, options, myContract;
-            return __generator(this, function (_a) {
-                from = '';
-                pk = '';
-                web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER));
-                contractAddress = '0xB6eD7644C69416d67B522e20bC294A9a9B405B31';
-                abi = require(__dirname + '/../../contracts/_0xBitcoin.json');
-                gasPrice = '20000000000' // default gas price in wei, 20 gwei in this case
-                ;
-                options = { from: from, gasPrice: gasPrice };
-                myContract = new web3.eth.Contract(abi, contractAddress, options);
-                // console.log('MY CONTRACT', myContract)
-                myContract.methods
-                    .getChallengeNumber().call({ from: from }, function (_error, _result) {
-                    if (_error)
-                        return console.error(_error);
-                    console.log('RESULT', _result);
-                    // let pkg = {
-                    //     balance: _result,
-                    //     bricks: parseInt(_result / 100000000)
-                    // }
-                    // res.json(pkg)
-                });
-                return [2 /*return*/];
-            });
+    /**
+     * Get Challenge Number
+     */
+    App.prototype._getChallengeNumber = function () {
+        /* Localize this. */
+        var self = this;
+        /* Return a promise. */
+        return new Promise(function (_resolve, _reject) {
+            /* Initilize address. */
+            var contractAddress = '0xB6eD7644C69416d67B522e20bC294A9a9B405B31';
+            /* Initilize abi. */
+            var abi = require(__dirname + '/../abi/_0xBitcoin.json');
+            /* Initialize options. */
+            var options = {};
+            /* Initialize contract. */
+            var contract = self.web3.eth.Contract(abi, contractAddress, options);
+            /* Initialize contract handler. */
+            var _handler = function (_error, _result) {
+                if (_error) {
+                    /* Return with rejected promise. */
+                    return _reject(_error);
+                }
+                /* Resolve promise. */
+                _resolve(_result);
+            };
+            /* Call contract. */
+            contract.methods.getChallengeNumber().call(options, _handler);
         });
     };
     return App;
