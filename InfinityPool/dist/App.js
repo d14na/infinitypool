@@ -104,6 +104,11 @@ var App = /** @class */ (function () {
                 return [2 /*return*/];
             });
         }); });
+        /* Initialize CORS. */
+        this.express.use(function (req, res, next) {
+            res.header('Access-Control-Allow-Origin', '*');
+            next();
+        });
         /* Use router. */
         this.express.use('/', router);
     };
