@@ -1,6 +1,7 @@
 import * as express from 'express'
 import * as moment from 'moment'
 // import * as Web3 from 'web3'
+import * as Nano from 'nano'
 
 // FIXME: `import` not working; or disable warning
 const Web3 = require('web3')
@@ -11,6 +12,7 @@ const HTTP_PROVIDER = 'https://mainnet.infura.io/v3/97524564d982452caee95b257a54
 class App {
     public express: any
     public web3: any
+    public nano: any
 
     constructor () {
         /* Initialize express. */
@@ -19,9 +21,13 @@ class App {
         /* Initialize web3. */
         this.web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER))
 
+        /* Initialize Nano connection to localhost CouchDb. */
+        this.nano = Nano('http://127.0.0.1:5984')
+
         this._mountRoutes()
         this._runMintTest()
         this._runWeb3Test()
+        this._runDbTest()
     }
 
     /**
@@ -75,6 +81,27 @@ class App {
 
     private _runMintTest() {
         console.log('Running Mint test...')
+    }
+
+    private async _runDbTest() {
+        console.log('Running Db test...')
+
+        // const db = nano.use('foo')
+
+        /* Initialize db. */
+        const db = this.nano.db.use('profiles')
+
+        // const response = await db.insert({ happy: true }, 'rabbit')
+        // console.log('RESPONSE', response)
+
+        const results = await db.get('rabbit')
+        console.log('RESULTS', results)
+
+        db.list().then((body: any) => {
+            body.rows.forEach((doc: any) => {
+                console.log(doc)
+            })
+        })
     }
 
     private async _runWeb3Test() {

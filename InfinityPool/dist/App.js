@@ -38,6 +38,7 @@ exports.__esModule = true;
 var express = require("express");
 var moment = require("moment");
 // import * as Web3 from 'web3'
+var Nano = require("nano");
 // FIXME: `import` not working; or disable warning
 var Web3 = require('web3');
 /* Initialize constants. */
@@ -48,9 +49,12 @@ var App = /** @class */ (function () {
         this.express = express();
         /* Initialize web3. */
         this.web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER));
+        /* Initialize Nano connection to localhost CouchDb. */
+        this.nano = Nano('http://127.0.0.1:5984');
         this._mountRoutes();
         this._runMintTest();
         this._runWeb3Test();
+        this._runDbTest();
     }
     /**
      * Mount Routes
@@ -105,6 +109,28 @@ var App = /** @class */ (function () {
     };
     App.prototype._runMintTest = function () {
         console.log('Running Mint test...');
+    };
+    App.prototype._runDbTest = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var db, results;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        console.log('Running Db test...');
+                        db = this.nano.db.use('profiles');
+                        return [4 /*yield*/, db.get('rabbit')];
+                    case 1:
+                        results = _a.sent();
+                        console.log('RESULTS', results);
+                        db.list().then(function (body) {
+                            body.rows.forEach(function (doc) {
+                                console.log(doc);
+                            });
+                        });
+                        return [2 /*return*/];
+                }
+            });
+        });
     };
     App.prototype._runWeb3Test = function () {
         return __awaiter(this, void 0, void 0, function () {
