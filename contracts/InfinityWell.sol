@@ -9,9 +9,12 @@ pragma solidity ^0.4.25;
  *                of value using transparent game theory.
  *
  *                Miners collect InfinityStones, redemable towards a share
- *                from ANY ERC-20 tokens / collectibles available in the pool.
+ *                from ANY ERC-20 tokens / collectibles available in the well.
  *
- * Version 19.2.5
+ *                To learn more, please visit:
+ *                https://infinitywell.info
+ *
+ * Version 19.4.19
  *
  * https://d14na.org
  * support@d14na.org
@@ -70,28 +73,6 @@ contract ERC20Interface {
 contract ApproveAndCallFallBack {
     function approveAndCall(address spender, uint tokens, bytes data) public;
     function receiveApproval(address from, uint256 tokens, address token, bytes data) public;
-}
-
-
-/*******************************************************************************
- *
- * ERC-721 Non-Fungible Token Interface
- * See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md
- */
-contract ERC721Interface {
-    event Transfer(address indexed _from, address indexed _to, uint256 indexed _tokenId);
-    event Approval(address indexed _owner, address indexed _approved, uint256 indexed _tokenId);
-    event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved);
-
-    function balanceOf(address _owner) external view returns (uint256);
-    function ownerOf(uint256 _tokenId) external view returns (address);
-    function safeTransferFrom(address _from, address _to, uint256 _tokenId, bytes data) external payable;
-    function safeTransferFrom(address _from, address _to, uint256 _tokenId) external payable;
-    function transferFrom(address _from, address _to, uint256 _tokenId) external payable;
-    function approve(address _approved, uint256 _tokenId) external payable;
-    function setApprovalForAll(address _operator, bool _approved) external;
-    function getApproved(uint256 _tokenId) external view returns (address);
-    function isApprovedForAll(address _owner, address _operator) external view returns (bool);
 }
 
 
@@ -163,6 +144,19 @@ contract Zer0netDbInterface {
 
 /*******************************************************************************
  *
+ * ZeroCache Interface
+ */
+contract ZeroCacheInterface {
+    function balanceOf(address _token, address _owner) public constant returns (uint balance);
+    function deposit(address _token, address _from, uint _tokens, bytes _data) external returns (bool success);
+    function transfer(address _token, address _to, uint _tokens) external returns (bool success);
+    function transfer(address _token, address _from, address _to, uint _tokens, address _staekholder, uint _staek, uint _expires, uint _nonce, bytes _signature) external returns (bool success);
+    function withdraw(address _token, uint _tokens) public returns (bool success);
+}
+
+
+/*******************************************************************************
+ *
  * @notice InfinityWell
  *
  *         An eternal laborinth of ERC tokens and collectibles PERMANENTLY
@@ -182,7 +176,7 @@ contract Zer0netDbInterface {
  *      amount of stone submitted to the forge.
  *
  *      NOTE: TOP100 token & collectible values are reported (in real-time)
- *            by the Zero(Cache) Price Index (0PI).
+ *            by the Zero(Cache) Price Index (ZPI).
  *
  *          <1 0STONE => up to 5% of a random TOP100 token
  *                       NO COLLECTIBLE BONUS
@@ -204,7 +198,19 @@ contract InfinityWell is ERC20Interface, Owned {
     using SafeMath for uint;
 
     /* Initialize Zer0net Db contract. */
-    Zer0netDbInterface public zer0netDb;
+    Zer0netDbInterface private _zer0netDb;
+
+    /**
+     * Set Namespace
+     *
+     * Provides a "unique" name for generating "unique" data identifiers,
+     * most commonly used as database "key-value" keys.
+     *
+     * NOTE: Use of `namespace` is REQUIRED when generating ANY & ALL
+     *       Zer0netDb keys; in order to prevent ANY accidental or
+     *       malicious SQL-injection vulnerabilities / attacks.
+     */
+    string private _namespace = 'infinitywell';
 
     /**
      * ERC-20 Interface Initialization
@@ -212,13 +218,9 @@ contract InfinityWell is ERC20Interface, Owned {
     string public symbol;
     string public name;
     uint8 public decimals;
-    uint public _totalSupply;
+    uint private _totalForged;
     mapping(address => uint) balances;
     mapping(address => mapping(address => uint)) allowed;
-
-    /* ERC-721 Interface Signature. */
-    // `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`
-    bytes4 private constant _ERC721_RECEIVED = 0x150b7a02;
 
     event Destroy(
         address indexed minado,
@@ -228,13 +230,6 @@ contract InfinityWell is ERC20Interface, Owned {
     event Forge(
         address indexed minado,
         uint tokens
-    );
-
-    event Received(
-        address operator,
-        address from,
-        uint256 tokenId,
-        bytes data
     );
 
     /***************************************************************************
@@ -248,17 +243,21 @@ contract InfinityWell is ERC20Interface, Owned {
      */
     constructor() public {
         /* Ininitialize ERC-20 token values. */
-        symbol          = '0STONE';
-        name            = 'InfinityStone';
-        decimals        = 18; // NOTE: Same amount as Ethereum (ETH).
-        _totalSupply    = 0;
+        symbol   = '0STONE';
+        name     = 'InfinityStone';
+        decimals = 18; // NOTE: Same amount as Ethereum (ETH).
 
-        // balances[owner] = _totalSupply;
-        // emit Transfer(address(0), owner, _totalSupply);
+        // *********************************************************************
+        // *** NO PRE-MINE ***
+        // *********************************************************************
+        _totalForged = 0;
+        // balances[owner] = _totalForged;
+        // emit Transfer(address(0x0), owner, _totalForged);
 
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
-        zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
     }
 
     /**
@@ -266,10 +265,18 @@ contract InfinityWell is ERC20Interface, Owned {
      */
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
-        require(zer0netDb.getBool(keccak256(
-            abi.encodePacked(msg.sender, '.has.auth.for.infinitywell'))) == true);
+        require(_zer0netDb.getBool(keccak256(
+            abi.encodePacked(msg.sender, '.has.auth.for.', _namespace))) == true);
 
         _;      // function code is inserted here
+    }
+
+    /**
+     * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
+     */
+    function () public payable {
+        /* Cancel this transaction. */
+        revert('Oops! Direct payments are NOT permitted here.');
     }
 
     /***************************************************************************
@@ -277,7 +284,17 @@ contract InfinityWell is ERC20Interface, Owned {
      * Total supply
      */
     function totalSupply() public constant returns (uint) {
-        return _totalSupply - balances[address(0)];
+        /* Retrieve burn balance. */
+        uint burnAmount = balances[address(0x0)];
+
+        /* Retrieve burn balance from ZeroCache. */
+        uint cacheBurnAmount = _zeroCache().balanceOf(
+            address(this),
+            address(0x0)
+        );
+
+        // NOTE: Destroyed stones are "burned" (sent to 0x0).
+        return _totalForged - burnAmount - cacheBurnAmount;
     }
 
     /***************************************************************************
@@ -371,20 +388,38 @@ contract InfinityWell is ERC20Interface, Owned {
         return true;
     }
 
+
+    /***************************************************************************
+     *
+     * ACTIONS
+     *
+     */
+
     /**
      * Forge NEW InfinityStone(s)
      *
-     * NOTE: Can ONLY be called by an authorized account.
+     * NOTE: Can ONLY be called by an authorized administrator.
      */
     function forgeStones(
         address _owner,
         uint _tokens
     ) external onlyAuthBy0Admin returns (bool success) {
-        /* Add newly forged 0STONE to its owner's balance. */
-        balances[_owner] = balances[_owner].add(_tokens);
+        /* Increase the total 0STONE forge count. */
+        _totalForged = _totalForged.add(_tokens);
 
-        /* Increase the total 0STONE supply. */
-        _totalSupply = _totalSupply.add(_tokens);
+        /* Add tokens to InfinityWell balance. */
+        balances[address(this)] = _tokens;
+
+        /* Allow ZeroCache to transfer full tokens. */
+        allowed[address(this)][address(_zeroCache())] = _tokens;
+
+        /* Request deposit to owner's ZeroCache. */
+        _zeroCache().deposit(
+            address(this), // token
+            address(this), // from
+            _tokens,
+            abi.encodePacked(_owner)
+        );
 
         /* Broadcast event. */
         emit Forge(_owner, _tokens);
@@ -396,21 +431,40 @@ contract InfinityWell is ERC20Interface, Owned {
     /**
      * Destroy InfinityStone(s)
      *
-     * NOTE: Can ONLY be called by an authorized account.
+     * NOTE: Can ONLY be called by an authorized administrator.
      */
     function destroyStones(
         address _owner,
-        uint _tokens
+        uint _tokens,
+        address _staekholder,
+        uint _staek,
+        uint _expires,
+        uint _nonce,
+        bytes _signature
     ) external onlyAuthBy0Admin returns (bool success) {
+        /* Retrieve owner balance from ZeroCache. */
+        uint balance = _zeroCache().balanceOf(
+            address(this),
+            _owner
+        );
+
         /* Validate owner balance. */
-        require(balances[_owner].sub(_tokens) > 0,
-            'Oops! You DO NOT have enough to do that!');
+        if (balance < _tokens) {
+            revert('Oops! You DO NOT have enough InfinityStone.');
+        }
 
-        /* Reduce stone supply of owner. */
-        balances[_owner] = balances[_owner].sub(_tokens);
-
-        /* Decrease the total InfinityStone supply. */
-        _totalSupply = _totalSupply.sub(_tokens);
+        /* Transfer "approved" tokens to InfinityWell. */
+        _zeroCache().transfer(
+            address(this),
+            _owner,
+            address(0x0), // NOTE: This is our ZeroCache burn address.
+            _tokens,
+            _staekholder,
+            _staek,
+            _expires,
+            _nonce,
+            _signature
+        );
 
         /* Broadcast event. */
         emit Destroy(_owner, _tokens);
@@ -420,84 +474,51 @@ contract InfinityWell is ERC20Interface, Owned {
     }
 
     /**
-     * Transfer ERC-20 Token(s)
+     * Transfer ERC-20/721 Token(s)
      *
-     * NOTE: Can ONLY be called by an authorized account.
+     * ZeroCache will auto-detect the interface (either ERC-20 or ERC-721),
+     * then perform the token or collectible transfer.
+     *
+     * NOTE: Can ONLY be called by an authorized administrator.
      */
-    function transferERC20(
+    function transfer(
         address _token,
         address _to,
-        uint _tokens
+        uint _tokensOrId
     ) external onlyAuthBy0Admin returns (bool success) {
         /* Transfer tokens. */
-        ERC20Interface(_token).transfer(_to, _tokens);
+        _zeroCache().transfer(_token, _to, _tokensOrId);
 
         /* Broadcast event. */
-        emit Transfer(address(this), _to, _tokens);
+        emit Transfer(address(this), _to, _tokensOrId);
 
         /* Return success. */
         return true;
     }
 
-    /**
-     * Transfer an ERC-721 Collectible
+
+    /***************************************************************************
      *
-     * NOTE: Can ONLY be called by an authorized account.
+     * INTERFACES
      *
-     * Legacy Support
-     * --------------
-     *
-     * This function provides legacy support for pre-`safeTransferFrom`
-     * NFTs, eg. CryptoKitties, by using the deprecated
-     * `approve/transferFrom` procedure, no longer recommended by
-     * the updated NFT protocol. (see here: http://erc721.org/)
      */
-    function transferERC721(
-        address _token,
-        address _to,
-        uint256 _tokenId
-    ) external onlyAuthBy0Admin returns (bool success) {
-        /* Execute token transfer (from). */
-        // NOTE: `transferFrom` is supported universally by ERC-721 contracts.
-        ERC721Interface(_token).transferFrom(address(this), _to, _tokenId);
-
-        /* Broadcast event. */
-        // NOTE: This is re-used from ERC20Interface.
-        emit Transfer(address(this), _to, uint(_tokenId));
-
-        /* Return success. */
-        return true;
-    }
 
     /**
-     * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
-     */
-    function () public payable {
-        /* Cancel this transaction. */
-        revert('Oops! Direct payments are NOT permitted here.');
-    }
-
-    /**
-     * ERC-721 (Collectible) Received (Confirmation)
+     * ZeroCache Interface
      *
-     * This provides support for ERC-721 tokens transferred using the
-     * recommended `safeTransferFrom` function. (http://erc721.org/)
+     * Retrieves the current ZeroCache interface,
+     * using the aname record from Zer0netDb.
      */
-    function onERC721Received(
-        address _operator,
-        address _from,
-        uint256 _tokenId,
-        bytes _data
-    ) public returns (bytes4) {
-        /* Broadcast event. */
-        emit Received(
-            _operator,
-            _from,
-            _tokenId,
-            _data
-        );
+    function _zeroCache() private view returns (
+        ZeroCacheInterface zeroCache
+    ) {
+        /* Initialize hash. */
+        bytes32 hash = keccak256('aname.zerocache');
 
-        /* Return received signature. */
-        return _ERC721_RECEIVED;
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        zeroCache = ZeroCacheInterface(aname);
     }
 }
