@@ -1,6 +1,6 @@
 {
-  "name": "minado",
-  "version": "0.1.0",
+  "name": "infinitypool",
+  "version": "19.4.19",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",

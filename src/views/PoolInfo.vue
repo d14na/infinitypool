@@ -1,8 +1,8 @@
 <template>
     <div class="pool-summary">
-        <h1>Pool Info</h1>
+        <h1>Pool Summary</h1>
 
-        <h3>The Infinity Pool is FINALLY Here!</h3>
+        <h3>Pool is NOT RUNNING!</h3>
 
         <h5>{{greeting}}</h5>
 

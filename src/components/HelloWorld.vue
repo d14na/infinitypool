@@ -3,7 +3,7 @@
         <h1>{{ msg }}</h1>
 
         <p>
-            Thanks for visiting Minado, home of the Infinity Pool.
+            This portal if for authorized personnel ONLY!
         </p>
     </div>
 </template>

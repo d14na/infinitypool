@@ -2,7 +2,7 @@
     <div class="home">
         <img alt="Vue logo" src="../assets/logo.png">
 
-        <HelloWorld msg="Welcome Back Miner!"/>
+        <HelloWorld msg="Infinity Pool Administrative Center"/>
     </div>
 </template>
 
