@@ -21,7 +21,8 @@
     "vue-property-decorator": "7.0.0",
     "vue-router": "3.0.1",
     "vuex": "3.0.1",
-    "web3": "1.0.0-beta.46"
+    "web3": "1.0.0-beta.46",
+    "winston": "^3.2.1"
   },
   "devDependencies": {
     "@types/jest": "^23.1.4",
