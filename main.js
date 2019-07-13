@@ -1,5 +1,3 @@
-console.log('Welcome to InfinityPool')
-
 const app = require('express')()
 const http = require('http').createServer(app)
 // const io = require('socket.io')(http)
@@ -10,6 +8,7 @@ const wss = new WebSocket.Server({ port: 3000 })
 const nano = require('nano')('http://localhost:5984')
 const winston = require('winston')
 
+const ethers = require('ethers')
 const moment = require('moment')
 
 /* Initialize database connection. */
@@ -41,6 +40,8 @@ function _heartbeat () {
     this.isAlive = true
 }
 
+console.log('Welcome to InfinityPool')
+
 /**
  * Calculate Log Name (by Date)
  */
@@ -54,10 +55,12 @@ const _calcLogName = function (_isError) {
     }
 }
 
+/* Initialize Winston. */
 const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.json(),
     transports: [
+        new winston.transports.Console(),
         new winston.transports.File({ filename: './logs/' + _calcLogName(true), level: 'error' }),
         new winston.transports.File({ filename: './logs/' + _calcLogName() })
     ]
@@ -83,25 +86,61 @@ wss.on('close', () => {
 })
 
 wss.on('connection', function (_ws, _req) {
+    /* Log connection source (ip address). */
+    if (_req.headers && _req.headers['x-forwarded-for']) {
+        const ip = _req.headers['x-forwarded-for'].split(/\s*,\s*/)[0]
+
+        logger.info(`Connection from [ ${ip} ]`)
+    }
+
     /* Set flag. */
     _ws.isAlive = true
 
     /* Handle pong. */
     _ws.on('pong', _heartbeat)
 
-    if (_req.headers && _req.headers['x-forwarded-for']) {
-        const ip = _req.headers['x-forwarded-for'].split(/\s*,\s*/)[0]
-
-        console.log(`Connection from [ ${ip} ]`)
-    }
-
+    /* Handle message. */
     _ws.on('message', function (_message) {
-        console.log('received: %s', _message)
-
         logger.debug(`received: [ ${_message} ]`)
     })
 
-    _ws.send('hi there, this is Minado.Network..')
+    /* Set action. */
+    const action = 'init'
+
+    /* Set address. */
+    const address = '0xaE6A6bfDe0B226302ccA6155f487D1f46e6AC821'
+
+    /* Set challenge. */
+    // const challengeNum = ethers.utils.bigNumberify(
+    //     '71152175942061195429752053136004011344333682236262982809903143900646877130177')
+    // const challenge = challengeNum.toHexString()
+    const challenge = '0x8a4ef18d3b802dab9164b66ee1b07dc8b64eec8a7b3722bb09a053d832b97086'
+
+    /* Set difficulty. */
+    const difficulty = 1
+
+    /* Set target. */
+    // const target = '27606985387162255149739023449108101809804435888681546220650096895197184'
+    // const target = '441711766194596082395824375185729628956870974218904739530401550323154944' // 64
+    // const target = '11579208923731619542357098500868790785326998466564056403945758400791312963993' // 256
+    // const target = '0x04000000000000000000000000000000000000000000000000000000000000' // easy solve
+    const target = '0x040000000000000000000000000000000000000000000000000000000000' // 0xToken diff-1
+
+    /* Set metadata. */
+    const metadata = 'ZeroGold - 0GOLD'
+
+    /* Build welcome package. */
+    const pkg = {
+        action,
+        address,
+        challenge,
+        difficulty,
+        target,
+        metadata
+    }
+
+    /* Send welcome package. */
+    _ws.send(JSON.stringify(pkg))
 })
 
 /* Start broadcasting. */
