@@ -3,13 +3,14 @@
   "version": "19.7.13",
   "description": "Token mining pool software.",
   "main": "index.js",
-  "license": "MIT"
+  "license": "MIT",
   "dependencies": {
     "ethers": "4.0.33",
     "express": "4.16.4",
     "moment": "2.24.0",
     "nano": "8.0.1",
-    "socket.io": "2.2.0",
+    "node-static": "0.7.11",
+    "sockjs": "0.3.19",
     "winston": "3.2.1"
   }
 }
