@@ -58,10 +58,10 @@ ws.on('connection', async (_conn) => {
     console.log('DB RESULT', result)
 
     /* Initialize error listener. */
-    // _conn.on('error', _handleError)
+    _conn.on('error', _handleError)
 
     /* Initialize close listener. */
-    // _conn.on('close', _handleClose)
+    _conn.on('close', _handleClose)
 
     /* Initialize data (message) listener. */
     _conn.on('data', (_data) => {
@@ -83,23 +83,39 @@ ws.on('connection', async (_conn) => {
         let note = {
             id: connId,
             welcome: 'please be patient...',
+            timestamp: new Date(),
             connCount: connCount
         }
 
-        _conn.write(JSON.stringify(note))
-
-        /* Retrieve connection id. */
-        // const connId = _conn.id
-
-        /* Retrieve data id. */
-        // const dataId = data.dataId
-
-        /* Validate connection id. */
-        // if (!connId) {
-        //     return console.error('Could not retrieve connection id for:', _data)
-        // }
+        /* Broadcast to all (except sender). */
+        _broadcast(note, connId)
     })
 })
+
+const _handleError = function (_err) {
+    console.log('ERROR:', _err)
+}
+
+const _handleClose = function (_e) {
+    console.log('CLOSED:', _e)
+}
+
+/**
+ * Broadcast (to all connections)
+ */
+const _broadcast = function (_pkg, connId = null) {
+    Object.keys(connPool).forEach(function(_k, _i) {
+        /* Set connection (from pool). */
+        let conn = connPool[_k]
+
+        /* Filter out a connection id. */
+        // NOTE: Used primarily to exclude message sender.
+        if (connId !== conn.id) {
+            /* Send "stringified" package. */
+            conn.write(JSON.stringify(_pkg))
+        }
+    })
+}
 
 /* Initialize static files. */
 const static_directory = new node_static.Server(__dirname)
