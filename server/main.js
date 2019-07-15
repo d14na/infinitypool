@@ -104,20 +104,18 @@ function _heartbeat () {
     this.isAlive = true
 }
 
-const getTarget = async function () {
-    let provider = ethers.getDefaultProvider('kovan')
+// const tryMint = async function () {
+//     /* Set ZeroGold address. */
+//     // FIXME Pull this from `db.0net.io`.
+//     const zgAddress = '0xf6E9Fc9eB4C20eaE63Cb2d7675F4dD48B008C531' // KOVAN
+//     let digest = '0x000002763fedf98e51de7076958e2d951b57dbb988f215c863fff5b50a0bf481'
+//     let nonce = '0xff2e37a8d854777ba0ceec1d1282dde7b74e5d2f66e1826d143eb2bd89436374'
+//
+//     const mint = require('./network').mint
+//     let tx = await mint(zgAddress, digest, nonce)
+//         .catch((_err) => { console.error(_err) })
+//
+//     console.log('TRANSACTION', tx)
+// }
 
-    let abi = require('../contracts/Minado.json')
-
-    let contractAddress = '0x9fb54e00a1fe2df35f685f46c9c78b7cfcc9c5cb' // KOVAN
-    let zgAddress = '0xf6E9Fc9eB4C20eaE63Cb2d7675F4dD48B008C531' // KOVAN
-
-    let contract = new ethers.Contract(contractAddress, abi, provider)
-
-    let target = await contract.getTarget(zgAddress)
-
-    console.log('TARGET', target, target.toString())
-}
-
-// getChallenge()
-getTarget()
+// tryMint()

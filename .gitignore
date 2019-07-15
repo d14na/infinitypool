@@ -57,4 +57,4 @@ buck-out/
 
 logs/
 .ftpconfig
-config.js
+config.json

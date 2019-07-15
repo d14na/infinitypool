@@ -69,26 +69,33 @@ const connection = async function (_conn, _pool, _db, _logger) {
 
         console.log('DATA (parsed)', data)
 
-        let connCount = Object.keys(_pool).length
-
-        let note = {
-            id: connId,
-            welcome: 'please be patient...',
-            timestamp: new Date(),
-            connCount: connCount
-        }
+        // let connCount = Object.keys(_pool).length
+        //
+        // let note = {
+        //     id: connId,
+        //     welcome: 'please be patient...',
+        //     timestamp: new Date(),
+        //     connCount: connCount
+        // }
 
         /* Broadcast to all (except sender). */
         // broadcast(note, _pool, connId)
         broadcast(data, _pool, connId)
     })
 
-    let challenge = await getChallenge()
+    /* Set ZeroGold address. */
+    // FIXME Pull this from `db.0net.io`.
+    const zgAddress = '0xf6E9Fc9eB4C20eaE63Cb2d7675F4dD48B008C531' // KOVAN
+
+    let challenge = await getChallenge(zgAddress)
     challenge = challenge.toHexString()
+
+    const config = require('./config.json')
+    const address = config['purse'].address
 
     let pkg = {
         action: 'init',
-        address: '0xaE6A6bfDe0B226302ccA6155f487D1f46e6AC821',
+        address,
         challenge,
         difficulty: '1',
         target: '0x040000000000000000000000000000000000000000000000000000000000'
