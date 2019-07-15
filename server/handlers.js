@@ -1,4 +1,8 @@
+const ethers = require('ethers')
+
 const broadcast = require('./helpers').broadcast
+
+const getChallenge = require('./network').getChallenge
 
 /**
  * Handle Error
@@ -7,8 +11,8 @@ const _errorHandler = function (_err) {
     console.error('ERROR:', _err)
 }
 
-const _handleClose = function (_e) {
-    console.log('Closed connection:', _e)
+const _handleClose = function () {
+    console.log('Closed connection.')
 }
 
 /**
@@ -75,8 +79,24 @@ const connection = async function (_conn, _pool, _db, _logger) {
         }
 
         /* Broadcast to all (except sender). */
-        broadcast(note, _pool, connId)
+        // broadcast(note, _pool, connId)
+        broadcast(data, _pool, connId)
     })
+
+    let challenge = await getChallenge()
+    challenge = challenge.toHexString()
+
+    let pkg = {
+        action: 'init',
+        address: '0xaE6A6bfDe0B226302ccA6155f487D1f46e6AC821',
+        challenge,
+        difficulty: '1',
+        target: '0x040000000000000000000000000000000000000000000000000000000000'
+    }
+
+    console.log('sending pkg', pkg)
+
+    _conn.write(JSON.stringify(pkg))
 }
 
 module.exports = {

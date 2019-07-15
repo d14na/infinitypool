@@ -7,9 +7,6 @@ pragma solidity ^0.4.25;
  *
  * Minado - Crypto Token Mining & Forging Community
  *
- *          Mineable (ERC-918) Tokens
- *          -------------------------
- *
  *          Minado has been optimized for mining ERC918-compatible tokens via
  *          the InfinityPool; a public storage of mineable ERC-20 tokens.
  *
@@ -20,32 +17,7 @@ pragma solidity ^0.4.25;
  *          Github   : https://github.com/ethereum/EIPs/pull/918
  *          Reddit   : https://www.reddit.com/r/Tokenmining
  *
- *
- *          InfinityPool Mining
- *          -------------------
- *
- *          A better model than ICOs and Airdrops, POW mining is accepted as
- *          the MOST democratic distribution system available in crypto today.
- *
- *          Learn more below:
- *
- *          Official : https://infinitypool.info
- *
- *
- *          InfinityWell Forging
- *          --------------------
- *
- *          Minado makes it simple and fun for STAEKers to manage their
- *          InfinityStone forging activities in the InfinityWell.
- *
- *          0STONEs can be used to claim instant rewards towards ANY ERC-20
- *          and/or ERC-721 token(s) currently owned by the InfinityWell.
- *
- *          Learn more below:
- *
- *          Official : https://infinitywell.info
- *
- * Version 19.3.26
+ * Version 19.7.15
  *
  * Web    : https://d14na.org
  * Email  : support@d14na.org
@@ -73,6 +45,18 @@ library SafeMath {
         require(b > 0);
         c = a / b;
     }
+}
+
+
+/*******************************************************************************
+ *
+ * ECRecovery
+ *
+ * Contract function to validate signature of pre-approved token transfers.
+ * (borrowed from LavaWallet)
+ */
+contract ECRecovery {
+    function recover(bytes32 hash, bytes sig) public pure returns (address);
 }
 
 
@@ -187,7 +171,8 @@ contract InfinityWellInterface {
  */
 contract StaekFactoryInterface {
     function balanceOf(bytes32 _staekhouseId) public view returns (uint balance);
-    function getStaekhouse(bytes32 _staekhouseId) external view returns (address factory, address token, address owner, uint ownerLockTime, uint providerLockTime, uint debtLimit, uint lockInterval, uint balance);
+    function balanceOf(bytes32 _staekhouseId, address _owner) public view returns (uint balance);
+    function getStaekhouse(bytes32 _staekhouseId, address _staeker) external view returns (address factory, address token, address owner, uint ownerLockTime, uint providerLockTime, uint debtLimit, uint lockInterval, uint balance);
 }
 
 
@@ -227,79 +212,76 @@ contract Minado is Owned {
     string private _namespace = 'minado';
 
     /**
-     * Generations Per Re-adjustment
-     *
-     * By default, we automatically trigger a difficulty adjustment
-     * after 144 generations (approx 24hrs).
-     *
-     *        ~4 ETH blocks per min
-     *        1,440 minutes per day (mul)
-     *       ~40 ETH blocks per BTC (div)
-     * ----------------------------
-     *      144 generations per day
-     *
-     * Frequent adjustments are especially important with low-liquidity
-     * tokens, which are more susceptible to mining manipulation.
-     *
-     * For additional control, token owners retain the ability to trigger
-     * a difficulty re-calculation at any time.
-     *
-     * NOTE: Bitcoin re-adjusts its difficulty every 2016 blocks,
-     *       which occurs approx. every 14 days.
-     */
-    uint private _INITIAL_GENERATIONS_PER_ADJUSTMENT = 144; // approx. 24hrs
-
-    /**
      * Large Target
      *
      * A big number used for difficulty targeting.
      *
      * NOTE: Bitcoin uses `2**224`.
      */
-    uint private _LARGE_TARGET = 2**234;
+    uint private _MAXIMUM_TARGET = 2**234;
 
     /**
-     * Small Targets
+     * Minimum Targets
      *
-     * Two small numbers used for difficulty targeting.
-     *
-     * NOTE: GPU target is 65,536 and CPU target is 64.
+     * Minimum number used for difficulty targeting.
      */
-    uint private _SMALL_GPU_TARGET = 2**16; // GPU
-    uint private _SMALL_CPU_TARGET = 2**6; // CPU
-
-    /**
-     * (Ethereum) Blocks Per Generation
-     *
-     * NOTE: Ethereum blocks take approx 15 seconds each.
-     *       1,000 blocks takes approx 4 hours.
-     */
-    uint private _BLOCKS_PER_GENERATION = 1000;
-
-    /**
-     * Epoch Conversion (Ethereum => Bitcoin)
-     *
-     * NOTE: We want miners to spend 10 minutes to mine each 'block'.
-     *       (about 40 Ethereum blocks for every 1 Bitcoin block)
-     */
-    uint _ETH_BLOCKS_PER_BTC = 40;
+    uint private _MINIMUM_TARGET = 2**16;
 
     /**
      * Set basis-point multiplier.
      *
      * NOTE: Used for (integer-based) fractional calculations.
      */
-    uint private _BP_MULTI = 10000;
+    uint private _BP_MUL = 10000;
+
+    /* Set InfinityStone decimals. */
+    uint private _STONE_DECIMALS = 18;
+
+    /* Set single InfinityStone. */
+    uint private _SINGLE_STONE = 1 * 10**_STONE_DECIMALS;
 
     /**
-     * Set InfinityStone Decimals
+     * (Ethereum) Blocks Per Forge
+     *
+     * NOTE: Ethereum blocks take approx 15 seconds each.
+     *       1,000 blocks takes approx 4 hours.
      */
-    uint private _STONE_DECIMALS = 18;
+    uint private _BLOCKS_PER_STONE_FORGE = 1000;
+
+    /**
+     * (Ethereum) Blocks Per Generation
+     *
+     * NOTE: We mirror the Bitcoin POW mining algorithm.
+     *       We want miners to spend 10 minutes to mine each 'block'.
+     *       (about 40 Ethereum blocks for every 1 Bitcoin block)
+     */
+    // uint BLOCKS_PER_GENERATION = 40; // Mainnet & Ropsten
+    uint BLOCKS_PER_GENERATION = 120; // Kovan
+
+    /**
+     * (Mint) Generations Per Re-adjustment
+     *
+     * By default, we automatically trigger a difficulty adjustment
+     * after 144 generations / mints (approx 24 hours).
+     *
+     * Frequent adjustments are especially important with low-liquidity
+     * tokens, which are more susceptible to mining manipulation.
+     *
+     * For additional control, token providers retain the ability to trigger
+     * a difficulty re-calculation at any time.
+     *
+     * NOTE: Bitcoin re-adjusts its difficulty every 2,016 generations,
+     *       which occurs approx. every 14 days.
+     */
+    // uint private _DEFAULT_GENERATIONS_PER_ADJUSTMENT = 144; // approx. 24hrs
+    uint private _DEFAULT_GENERATIONS_PER_ADJUSTMENT = 6; // approx. 1hr
 
     event Claim(
         address owner,
-        address[] tokens,
-        uint[] quantities
+        address token,
+        uint amount,
+        address collectible,
+        uint collectibleId
     );
 
     event Excavate(
@@ -336,7 +318,8 @@ contract Minado is Owned {
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
         // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
-        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
+        // _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
+        _zer0netDb = Zer0netDbInterface(0x3e246C5038287DEeC6082B95b5741c147A3f49b3); // KOVAN
 
         /* Initialize (aname) hash. */
         bytes32 hash = keccak256(abi.encodePacked('aname.', _namespace));
@@ -366,7 +349,7 @@ contract Minado is Owned {
     }
 
     /**
-     * @dev Only allow access to "registered" staekhouse authorized user/contract.
+     * @dev Only allow access to "registered" authorized user/contract.
      */
     modifier onlyTokenProvider(
         address _token
@@ -398,187 +381,208 @@ contract Minado is Owned {
      */
 
     /**
-     * Add NEW Mineable Token
-     *
-     * Handles the responsibility of storing the new token's
-     * parameters in the Eternal database.
-     *
-     * NOTE: Eternal storage allows for quick and easy future upgrades.
+     * Initialize Token
      */
-    function addMineableToken(
-        address _token
+    function init(
+        address _token,
+        address _provider
     ) external onlyAuthBy0Admin returns (bool success) {
-
-        // TODO Initialize all parameters.
-
         /* Set hash. */
-        bytes32 adjustmentHash = keccak256(abi.encodePacked(
+        bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
-            '.blocks.per.adjustment'
+            '.last.adjustment'
+        ));
+
+        /* Set current adjustment time in Zer0net Db. */
+        _zer0netDb.setUint(hash, block.number);
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.generations.per.adjustment'
         ));
 
         /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(
-            adjustmentHash, _INITIAL_GENERATIONS_PER_ADJUSTMENT);
+        _zer0netDb.setUint(hash, _DEFAULT_GENERATIONS_PER_ADJUSTMENT);
 
-        // TODO Run all initial procedures.
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Claim Gifts
-     *
-     * NOTE: Required pre-allowance/approval is required in order
-     *       to successfully complete the transfer.
-     */
-    function claimGifts(
-        address _token,
-        uint _tokens,
-        bytes _data
-    ) external returns (bool success) {
-        return _claimGifts(_token, msg.sender, _tokens, _data);
-    }
-
-    /**
-     * Receive Approval
-     *
-     * Will typically be called from `approveAndCall`.
-     *
-     * NOTE: In this case, we have no use for data, as
-     *       deposits are credited anonymously and only
-     *       accessible to the token owner(s).
-     */
-    function receiveApproval(
-        address _from,
-        uint _tokens,
-        address _token,
-        bytes _data
-    ) public returns (bool success) {
-        return _claimGifts(_token, _from, _tokens, _data);
-    }
-
-    /**
-     * Claim Gifts (ERC Token Rewards)
-     *
-     * InfinityStone HODLers can claim their ERC token rewards.
-     *
-     * Up to 5% for ERC-20 tokens; and a single ERC-721 collectible.
-     *
-     * # 0STONES    REWARD
-     * -------------------
-     *     1        5% of TOP100 token
-     *     3        5% of TOP30 token
-     *    10        5% of TOP10 token
-     *
-     * NOTE: InfinityStone redemptions other than (1, 3, 10)
-     *       will be automatically rejected by this contract.
-     */
-    function _claimGifts(
-        address _token,
-        address _from,
-        uint _tokens,
-        bytes _data
-    ) private returns (bool success) {
-        /* Destroy stones claimed for gifts. */
-        _destroyStones(_from, _tokens);
-
-        // FIXME Perform random selection
-        address erc20Token = 0x0;
-        uint erc20TokenAmount = 0;
-
-        /* Transfer the ERC-20 token(s) to owner. */
-        InfinityWellInterface(erc20Token).transferERC20(
-            erc20Token, _from, erc20TokenAmount);
-
-        // FIXME Perform random selection
-        address erc721token = 0x0;
-        uint256 erc721TokenId = 0;
-
-        /* Transfer ERC-721 token to owner. */
-        InfinityWellInterface(erc721token).transferERC721(
-            erc721token, _from, erc721TokenId);
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Forge NEW InfinityStone(s)
-     */
-    function forgeStones(
-        bytes32 _staekhouseId,
-        uint _generation
-    ) external returns (uint tokens) {
-        /* Forge stone(s). */
-        return _forgeStones(_staekhouseId, _generation);
-    }
-
-    // TODO Add relayer option
-
-    /**
-     * Forge NEW InfinityStone(s)
-     *
-     * NOTE: restricted to a MAX of once per 1000 blocks.
-     */
-    function _forgeStones(
-        bytes32 _staekhouseId,
-        uint _generation
-    ) private returns (uint tokens) {
         /* Set hash. */
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                _namespace, '.',
-                msg.sender,
-                '.has.forged.',
-                _generation
-            ));
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.challenge'
+        ));
+
+        /* Set current adjustment time in Zer0net Db. */
+        _zer0netDb.setBytes(
+            hash,
+            _bytes32ToBytes(blockhash(block.number - 1))
+        );
+
+        /* Set mining target. */
+        _setMiningTarget(
+            _token,
+            _MAXIMUM_TARGET
+        );
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _provider,
+            '.has.auth.for.',
+            _token
+        ));
 
         /* Set value in Zer0net Db. */
-        bool hasAlreadyForged = _zer0netDb.getBool(hash);
-
-        /* Validate forging. */
-        if (hasAlreadyForged) {
-            revert('Oops! You have ALREADY forged from that generation.');
-        }
-
-        /* Set value in Zer0net Db. */
-        // NOTE: Set flag here to prevent re-entry attack.
         _zer0netDb.setBool(hash, true);
 
-        /* Retrieve forge share. */
-        tokens = getOwnerForgeShare(msg.sender, _staekhouseId, _generation);
-
-        // FIXME Add some validation here??
-
-        /* Forge stones. */
-        _infinityWell().forgeStones(msg.sender, tokens);
+        return true;
     }
 
     /**
-     * Destroy InfinityStone(s)
+     * Mint
      */
-    function destroyStones(
-        uint _tokens
-    ) private returns (bool success) {
-        /* Destroy stones. */
-        return _destroyStones(msg.sender, _tokens);
+    function mint(
+        address _token,
+        bytes32 _digest,
+        uint _nonce
+    ) public returns (bool success) {
+        /* Retrieve the current challenge. */
+        uint challenge = getChallenge(_token);
+
+        /* Get mint digest. */
+        bytes32 digest = getMintDigest(
+            challenge,
+            msg.sender,
+            _nonce
+        );
+
+        /* The challenge digest must match the expected. */
+        if (digest != _digest) {
+            revert('Oops! That solution is NOT valid.');
+        }
+
+        /* The digest must be smaller than the target. */
+        if (uint(digest) > getTarget(_token)) {
+            revert('Oops! That solution is NOT valid.');
+        }
+
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            digest,
+            '.solutions'
+        ));
+
+        /* Retrieve value from Zer0net Db. */
+        uint solution = _zer0netDb.getUint(hash);
+
+        /* Validate solution. */
+        if (solution != 0x0) {
+            revert('Oops! That solution is a DUPLICATE.');
+        }
+
+        /* Save this digest to 'solved' solutions. */
+        _zer0netDb.setUint(hash, uint(digest));
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.generation'
+        ));
+
+        /* Retrieve value from Zer0net Db. */
+        uint generation = _zer0netDb.getUint(hash);
+
+        /* Increment the generation. */
+        generation = generation.add(1);
+
+        /* Increment the generation count by 1. */
+        _zer0netDb.setUint(hash, generation);
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.generations.per.adjustment'
+        ));
+
+        /* Retrieve value from Zer0net Db. */
+        uint genPerAdjustment = _zer0netDb.getUint(hash);
+
+        // every so often, readjust difficulty. Dont readjust when deploying
+        if (generation % genPerAdjustment == 0) {
+            _reAdjustDifficulty(_token);
+        }
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.challenge'
+        ));
+
+        /**
+         * Make the latest ethereum block hash a part of the next challenge
+         * for PoW to prevent pre-mining future blocks. Do this last,
+         * since this is a protection mechanism in the mint() function.
+         */
+        _zer0netDb.setBytes(
+            hash,
+            _bytes32ToBytes(blockhash(block.number - 1))
+        );
+
+        /* Retrieve mining reward. */
+        // FIXME Add support for percentage reward.
+        uint rewardAmount = getMintFixed(_token);
+
+        /* Transfer (token) reward to minter. */
+        _infinityPool().transfer(
+            _token,
+            msg.sender,
+            rewardAmount
+        );
+
+        /* Emit log info. */
+        emit Mint(
+            msg.sender,
+            rewardAmount,
+            generation,
+            blockhash(block.number - 1) // next target
+        );
+
+        /* Return success. */
+        return true;
     }
 
-    // TODO Add relayer option
-
     /**
-     * Destroy InfinityStone(s)
+     * Test Mint Solution
      */
-    function _destroyStones(
-        address _owner,
-        uint _tokens
-    ) private returns (bool success) {
-        /* Destroy stones. */
-        return _infinityWell()
-            .destroyStones(_owner, _tokens);
+    function testMint(
+        bytes32 _digest,
+        uint _challenge,
+        address _minter,
+        uint _nonce,
+        uint _target
+    ) public pure returns (bool success) {
+        /* Retrieve digest. */
+        bytes32 digest = getMintDigest(
+            _challenge,
+            _minter,
+            _nonce
+        );
+
+        /* Validate digest. */
+        // NOTE: Cast type to 256-bit integer
+        if (uint(digest) > _target) {
+            /* Set flag. */
+            success = false;
+        } else {
+            /* Verify success. */
+            success = (digest == _digest);
+        }
     }
 
     /**
@@ -628,28 +632,24 @@ contract Minado is Owned {
         bytes32 adjustmentHash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
-            '.blocks.per.adjustment'
+            '.generations.per.adjustment'
         ));
 
         /* Retrieve value from Zer0net Db. */
-        uint blocksPerAdjustment = _zer0netDb.getUint(adjustmentHash);
+        uint genPerAdjustment = _zer0netDb.getUint(adjustmentHash);
 
-        /**
-         * Expected ETH Blocks (Per Adjustment Period)
-         *
-         * NOTE: To match Bitcoin, this should be 40 times slower than Ethereum.
-         *       eg. 144 x 40 = 5,760
-         */
-        uint expectedBlocks = blocksPerAdjustment * _ETH_BLOCKS_PER_BTC;
+        /* Calculate number of expected blocks per generation. */
+        uint expectedBlocksPerGen = genPerAdjustment.mul(BLOCKS_PER_GENERATION);
 
         /* Retrieve mining target. */
-        uint miningTarget = getMiningTarget(_token);
+        uint miningTarget = getTarget(_token);
 
-        // if there were less eth blocks passed in time than expected
-        // NOTE: Miners are excavating too quickly.
-        if (blocksSinceLastAdjustment < expectedBlocks) {
+        /* Validate the number of blocks passed; if there were less eth blocks
+         * passed in time than expected, then miners are excavating too quickly.
+         */
+        if (blocksSinceLastAdjustment < expectedBlocksPerGen) {
             // NOTE: This number will be an integer greater than 100.
-            uint excess_block_pct = expectedBlocks.mul(100)
+            uint excess_block_pct = expectedBlocksPerGen.mul(100)
                 .div(blocksSinceLastAdjustment);
 
             /**
@@ -681,8 +681,8 @@ contract Minado is Owned {
             );
         } else {
             // NOTE: This number will be an integer greater than 100.
-            uint shortage_block_pct = (blocksSinceLastAdjustment.mul(100))
-                .div(expectedBlocks);
+            uint shortage_block_pct = blocksSinceLastAdjustment.mul(100)
+                .div(expectedBlocksPerGen);
 
             /**
              * Extended Epoch Mining Percentage Extra
@@ -711,201 +711,20 @@ contract Minado is Owned {
 
         /* Validate TOO SMALL mining target. */
         // NOTE: This is very difficult to guess.
-        if (miningTarget < _SMALL_CPU_TARGET) { //
-            miningTarget = _SMALL_CPU_TARGET;
+        if (miningTarget < _MINIMUM_TARGET) { //
+            miningTarget = _MINIMUM_TARGET;
         }
 
         /* Validate TOO LARGE mining target. */
         // NOTE: This is very easy to guess.
-        if (miningTarget > _LARGE_TARGET) {
-            miningTarget = _LARGE_TARGET;
+        if (miningTarget > _MAXIMUM_TARGET) {
+            miningTarget = _MAXIMUM_TARGET;
         }
 
-        /* Set mining target in Zer0net Db. */
+        /* Set mining target. */
         _setMiningTarget(
             _token,
-            block.number
-        );
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Begin NEW Mining Epoch
-     *
-     * A new 'block' to be mined.
-     */
-    function _beginMiningEpoch(
-        address _token
-    ) private returns (bool success) {
-        /* Set hash. */
-        bytes32 epochHash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _token,
-            '.epoch'
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        uint epoch = _zer0netDb.getUint(epochHash);
-
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(epochHash, epoch.add(1));
-
-        /* Set hash. */
-        bytes32 adjustmentHash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _token,
-            '.blocks.per.adjustment'
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        uint blocksPerAdjustment = _zer0netDb.getUint(adjustmentHash);
-
-        /**
-         * Difficulty Re-adjustment
-         *
-         * Every so often, re-adjust the difficulty to the maintain the
-         * expected minting distribution as desired by the token owner(s).
-         */
-        if (epoch % blocksPerAdjustment == 0) {
-            _reAdjustDifficulty(_token);
-        }
-
-        /**
-         * Set Challenge Number
-         *
-         * This is the hash of the last mined block on the blockchain.
-         *
-         * We make the latest ethereum block hash a part of the next challenge
-         * for PoW to prevent pre-mining future blocks.
-         *
-         * NOTE: Do this last since this is a protection mechanism
-         *       in the mint() function.
-         */
-        _setMiningChallenge(
-            _token,
-            blockhash(block.number - 1)
-        );
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Check Mint Solution
-     *
-     * NOTE: help debug mining software
-     */
-    function checkMintSolution(
-        uint _nonce,
-        bytes32 _challengeDigest,
-        bytes32 _challengeNumber,
-        uint _testTarget
-    ) external view returns (bool success) {
-        /* Calculate challenge digest. */
-        bytes32 digest = keccak256(abi.encodePacked(
-            _challengeNumber,
-            msg.sender,
-            _nonce
-        ));
-
-        /* Validate digest. */
-        if (uint(digest) > _testTarget) {
-            revert('Oops! Your mint solution is INCORRECT.');
-        }
-
-        /* Test digest. */
-        return (digest == _challengeDigest);
-    }
-
-    /**
-     * Mint (Mineable) Token
-     *
-     * Token owner(s) have the option of setting up to 3 parents to
-     * offer "qualifying" merge minting difficulty for their own
-     * minting solution.
-     *
-     * NOTE: Allowing multiple "Mining Kings" should hopefully encourage
-     *       children to adopt more parents and promote a more "diverse"
-     *       group of merged mining options for miners.
-     */
-    function mint(
-        address _token,
-        uint _nonce,
-        bytes32 _challengeDigest
-    ) external returns (bool success) {
-        /* Retrieve challenge number. */
-        bytes32 challengeNumber = getChallengeNumber(_token);
-
-        /* Retrieve mining target. */
-        uint miningTarget = getMiningTarget(_token);
-
-        /**
-         * Challenge Digest
-         *
-         * NOTE: The PoW must contain work that includes a recent ethereum
-         * block hash (challenge number) and the msg.sender's address
-         * to prevent MITM attacks.
-         */
-        bytes32 digest = keccak256(abi.encodePacked(
-            challengeNumber,
-            msg.sender,
-            _nonce
-        ));
-
-        /* The challenge digest must match the expected. */
-        if (digest != _challengeDigest) {
-            revert('Challenge digest is incorrect!');
-        }
-
-        /* Validate the digest. */
-        if (uint(digest) > miningTarget) {
-            revert('The digest CANNOT be greater than the target.');
-        }
-
-        /**
-         * Solution Validation
-         *
-         * Only allow one minting for each challenge.
-         */
-
-        /* Set hash. */
-        bytes32 solutionHash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _token,
-            '.solution.for.',
-            challengeNumber
-        ));
-
-        /* Validate UNSOLVED solution. */
-        // NOTE: Prevent the same answer from awarding twice.
-        if (_zer0netDb.getBytes(solutionHash).length > 0) {
-            revert('This solution has already been mined.');
-        }
-
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setBytes(solutionHash, _bytes32ToBytes(digest));
-
-        /* Retrieve mint amount. */
-        uint mintAmount = getMintAmount(_token);
-
-        /* Transfer tokens from InfinityPool to owner. */
-        _infinityPool().transfer(
-            _token,
-            msg.sender,
-            mintAmount
-        );
-
-        /* Begin a new mining epoch. */
-         _beginMiningEpoch(_token);
-
-        /* Broadcast event. */
-        emit Mint(
-            msg.sender,
-            mintAmount,
-            getForgingGen(),
-            challengeNumber
+            miningTarget
         );
 
         /* Return success. */
@@ -920,30 +739,18 @@ contract Minado is Owned {
      */
 
     /**
-     * (Get) Staek Of (Owner)
-     *
-     * Current balance of ZeroGold staeked to this contract.
-     */
-    // function staekOf(
-    //     bytes32 _staekhouseId,
-    //     address _owner
-    // ) public view returns (uint staek) {
-    //     /* Retreive balance from staekhouse. */
-    //     return _staekFactory().balanceOf(_staekhouseId, _owner);
-    // }
-
-    /**
      * Get Starting Block
      *
      * Starting Blocks
      * ---------------
      *
      * First blocks honoring the start of Miss Piggy's celebration year:
-     *     - Mainnet: 7,175,716
-     *     - Ropsten: 4,956,268
+     *     - Mainnet :  7,175,716
+     *     - Ropsten :  4,956,268
+     *     - Kovan   : 10,283,438
      *
      * NOTE: Pulls value from db `minado.starting.block` using the
-     *       repspective networks.
+     *       respective networks.
      */
     function getStartingBlock() public view returns (uint startingBlock) {
         /* Set hash. */
@@ -957,230 +764,154 @@ contract Minado is Owned {
     }
 
     /**
-     * Get Forging Generation
-     *
-     * Returns the current generation (in the forging cycle).
+     * Get minter's mintng address.
      */
-    function getForgingGen() public view returns (uint generation) {
-        /* Calculate number of elapsed blocks. */
-        uint blocksElapsed = block.number.sub(getStartingBlock());
-
-        /* Calculate current generation. */
-        generation = uint(blocksElapsed.div(_BLOCKS_PER_GENERATION));
-    }
-
-    function _getStaekhouseOwner(
-        bytes32 _staekhouseId
-    ) private view returns (address _owner) {
-        /* Retrieve staekhouse values. */
-        (
-            address factory,
-            address token,
-            address owner,
-            uint ownerLockTime,
-            uint providerLockTime,
-            uint debtLimit,
-            uint lockInterval,
-            uint balance
-        ) = _staekFactory().getStaekhouse(_staekhouseId);
-
-        /* Return owner. */
-        return owner;
-    }
-
-    /**
-     * Get Owner (Current) Forge Share
-     */
-    function getOwnerForgeShare(
-        address _owner,
-        bytes32 _staekhouseId,
-        uint _generation
-    ) public returns (uint share) {
+    function getMinter() external view returns (address minter) {
         /* Set hash. */
-        bytes32 hasForgedHash = keccak256(
-            abi.encodePacked(
-                _namespace, '.',
-                _owner,
-                '.has.forged.',
-                _generation
-            ));
-
-        /* Validate forging ability. */
-        if (_zer0netDb.getBool(hasForgedHash) == true) {
-            return 0;
-        }
-
-        /* Retrieve staekhouse owner. */
-        address staekhouseOwner = _getStaekhouseOwner(_staekhouseId);
-
-        /* Validate staekhouse owner. */
-        if (staekhouseOwner != _owner) {
-            return 0;
-        }
-
-        /* Retrieve owner staek amount. */
-        uint staek = _staekFactory().balanceOf(_staekhouseId);
-
-        /* Set hash. */
-        bytes32 staekHash = keccak256(abi.encodePacked(
-            _staekhouseId, '.total.staek'));
-
-        /* Retrieve value from Zer0net Db. */
-        uint totalStaek = _zer0netDb.getUint(staekHash);
-
-        /* Calculate owner rate. */
-        // NOTE: basis-point multiplier, 10,000 == 100.00%
-        uint ownerRate = staek.mul(_BP_MULTI).div(totalStaek);
-
-        /* Calculate owner (basis) points. */
-        // NOTE: basis-point multiplier, 1 == 10,000
-        uint ownerPoints = (1 * 10**_STONE_DECIMALS) * ownerRate;
-
-        /* Calculate owner share. */
-        share = ownerPoints.div(_BP_MULTI);
-    }
-
-    /**
-     * Get Challenge Number
-     *
-     * This is a recent ethereum block hash, used to prevent
-     * pre-mining future blocks.
-     */
-    function getChallengeNumber(
-        address _token
-    ) public view returns (bytes32 challengeNumber) {
-        /* Retrieve value from Zer0net Db. */
-        challengeNumber = _bytesToBytes32(_zer0netDb.getBytes(
-            keccak256(abi.encodePacked(
-                _namespace, '.',
-                _token,
-                '.challenge.number'
-            ))
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace,
+            '.minter'
         ));
+
+        /* Retrieve value from Zer0net Db. */
+        minter = _zer0netDb.getAddress(hash);
     }
 
     /**
-     * Get Mint Amount
-     *
-     * Calculate the current mint value.
+     * Get generation details.
      */
-    function getMintAmount(
+    function getGeneration(
         address _token
-    ) public view returns (uint mintTotal) {
-        /* Initialize mint total. */
-        mintTotal = 0;
+    ) external view returns (
+        uint generation,
+        uint cycle
+    ) {
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.generation'
+        ));
 
-        /* Retrieve InfinityPool token balance. */
-        uint infinityBalance = ERC20Interface(_token)
-            .balanceOf(address(_infinityPool()));
+        /* Retrieve value from Zer0net Db. */
+        generation = _zer0netDb.getUint(hash);
 
         /* Set hash. */
-        bytes32 fixedHash = keccak256(abi.encodePacked(
+        hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.generations.per.adjustment'
+        ));
+
+        /* Retrieve value from Zer0net Db. */
+        cycle = _zer0netDb.getUint(hash);
+    }
+
+    /**
+     * Get Minting FIXED amount
+     */
+    function getMintFixed(
+        address _token
+    ) public view returns (uint amount) {
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
             '.mint.fixed'
         ));
 
-        /* Return value from Zer0net Db. */
-        uint dbMintFixed = _zer0netDb.getUint(fixedHash);
+        /* Retrieve value from Zer0net Db. */
+        amount = _zer0netDb.getUint(hash);
+    }
 
-        /* Validate mint amount (does NOT exceed balance). */
-        if (dbMintFixed > infinityBalance) {
-            /* Set mint total to MAX balance. */
-            mintTotal = infinityBalance;
-        } else {
-            /* Set mint total to fixed amount. */
-            mintTotal = dbMintFixed;
-        }
-
+    /**
+     * Get Minting PERCENTAGE amount
+     */
+    function getPctFixed(
+        address _token
+    ) public view returns (uint amount) {
         /* Set hash. */
-        bytes32 pctHash = keccak256(abi.encodePacked(
+        bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
             '.mint.pct'
         ));
 
-        /* Return value from Zer0net Db. */
-        uint dbMintPct = _zer0netDb.getUint(pctHash);
-
-        /* Calculate dynamic mint amount. */
-        uint dynamicMintAmount = infinityBalance
-            .mul(100)
-            .div(dbMintPct);
-
-        /* Validate mint amount (does NOT exceed balance). */
-        if ((mintTotal + dynamicMintAmount) > infinityBalance) {
-            mintTotal = infinityBalance;
-        }
+        /* Retrieve value from Zer0net Db. */
+        amount = _zer0netDb.getUint(hash);
     }
 
     /**
-     * Get Mining Difficulty
+     * Get (Mining) Challenge
      *
-     * The number of zeroes the digest of the PoW solution requires.
-     * (auto adjusts)
+     * This is an integer representation of a recent ethereum block hash,
+     * used to prevent pre-mining future blocks.
      */
-     function getMiningDifficulty(
-         address _token
-    ) public view returns (uint difficulty) {
-        /* Retrieve mining target. */
-        uint miningTarget = getMiningTarget(_token);
-
-        /* Return difficulty. */
-        return _LARGE_TARGET.div(miningTarget);
-    }
-
-    function getMiningTarget(
+    function getChallenge(
         address _token
-    ) public constant returns (uint miningTarget) {
+    ) public view returns (uint challenge) {
         /* Set hash. */
         bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
-            '.mining.target'
+            '.challenge'
         ));
 
-        /* Return value from Zer0net Db. */
-        miningTarget = _zer0netDb.getUint(hash);
-   }
-
-    /**
-     * Get Mint Digest
-     *
-     * Help debug mining software.
-     */
-    function getMintDigest(
-        uint _nonce,
-        bytes32 _challengeNumber
-    ) external view returns (bytes32 digest) {
-        digest = keccak256(abi.encodePacked(
-            _challengeNumber,
-            msg.sender,
-            _nonce
+        /* Retrieve value from Zer0net Db. */
+        // NOTE: Convert from bytes to integer.
+        challenge = uint(_bytesToBytes32(
+            _zer0netDb.getBytes(hash)
         ));
     }
 
     /**
-     * Get Token Master
+     * Get (Mining) Difficulty
      *
-     * DEPRECATED -- use dynamic parent/child assignments
-     *
-     * This is the token with the highest difficulty in the
-     * Infinity Pool community. (reads from `challengeNumber`)
-     *
-     * NOTE: This is currently set to 0xBitcoin:
-     *       - Address: 0xB6eD7644C69416d67B522e20bC294A9a9B405B31
-     *       - Difficulty: 1,151,621,296
+     * The number of zeroes the digest of the PoW solution requires.
+     * (auto adjusts)
      */
-    function getTokenMaster() public view returns (address tokenMaster) {
+    function getDifficulty(
+        address _token
+    ) public view returns (uint difficulty) {
+        /* Caclulate difficulty. */
+        difficulty = _MAXIMUM_TARGET.div(getTarget(_token));
+    }
+
+    /**
+     * Get (Mining) Target
+     */
+    function getTarget(
+        address _token
+    ) public view returns (uint target) {
         /* Set hash. */
         bytes32 hash = keccak256(abi.encodePacked(
-            _namespace,
-            '.token.master'
+            _namespace, '.',
+            _token,
+            '.target'
         ));
 
-        /* Return value from Zer0net Db. */
-        tokenMaster = _zer0netDb.getAddress(hash);
+        /* Retrieve value from Zer0net Db. */
+        target = _zer0netDb.getUint(hash);
+    }
+
+    /**
+     * Get Mint Digest
+     *
+     * The PoW must contain work that includes a recent
+     * ethereum block hash (challenge hash) and the
+     * msg.sender's address to prevent MITM attacks
+     */
+    function getMintDigest(
+        uint _challenge,
+        address _minter,
+        uint _nonce
+    ) public pure returns (bytes32 digest) {
+        /* Calculate digest. */
+        digest = keccak256(abi.encodePacked(
+            _challenge,
+            _minter,
+            _nonce
+        ));
     }
 
     /**
@@ -1198,14 +929,15 @@ contract Minado is Owned {
      */
 
     /**
-     * Set Blocks Per (Difficulty) Adjustment
+     * Set Generations Per (Difficulty) Adjustment
      *
-     * Token owner(s) can adjust the number of blocks per difficulty re-calculation.
+     * Token owner(s) can adjust the number of generations
+     * per difficulty re-calculation.
      *
      * NOTE: This will help deter malicious miners from gaming the difficulty
      *       parameter, to the detriment of the token's community.
      */
-    function setBlocksPerAdjustment(
+    function setGenPerAdjustment(
         address _token,
         uint _numBlocks
     ) external onlyTokenProvider(_token) returns (bool success) {
@@ -1213,72 +945,11 @@ contract Minado is Owned {
         bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
-            '.blocks.per.adjustment'
+            '.generations.per.adjustment'
         ));
 
         /* Set value in Zer0net Db. */
         _zer0netDb.setUint(hash, _numBlocks);
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Set Last Generation
-     */
-    function _setLastGen() private returns (bool success) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace,
-            '.generation'
-        ));
-
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(hash, getForgingGen());
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Set Mining Challenge
-     *
-     * Block hash used for calculating the mining (solution) digest.
-     */
-    function _setMiningChallenge(
-        address _token,
-        bytes32 _hash
-    ) private returns (bool success) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _token,
-            '.mining.challenge'
-        ));
-
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setBytes(hash, _bytes32ToBytes(_hash));
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Set Mining Target
-     */
-    function _setMiningTarget(
-        address _token,
-        uint _target
-    ) private returns (bool success) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _token,
-            '.mining.target'
-        ));
-
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(hash, _target);
 
         /* Return success. */
         return true;
@@ -1333,26 +1004,79 @@ contract Minado is Owned {
      * that offer an acceptibly HIGH difficulty for the child's own
      * mining challenge.
      *
-     * NOTE: Up to 3 parents can be set to 1 of 3 priority levels.
-     *       1 - Strictest parent
-     *       2 - 2nd strictest parent
-     *       3 - Least strict parent
+     * Parents are saved in priority levels:
+     *     1 - Most significant parent
+     *     2 - 2nd most significant parent
+     *     ...
+     *     # - Least significant parent
      */
-    function setTokenParent(
+    function setTokenParents(
         address _token,
-        address _parent,
-        uint _priority
-    ) external onlyAuthBy0Admin returns (bool success) {
+        address[] _parents
+    ) external onlyTokenProvider(_token) returns (bool success) {
         /* Set hash. */
         bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
             _token,
-            '.parent.',
-            _priority
+            '.parents'
+        ));
+
+        // FIXME How should we store a dynamic amount of parents?
+        //       Packed as bytes??
+
+        // FIXME TEMPORARILY LIMITED TO 3
+        bytes memory allParents = abi.encodePacked(
+            _parents[0],
+            _parents[1],
+            _parents[2]
+        );
+
+        /* Set value in Zer0net Db. */
+        _zer0netDb.setBytes(hash, allParents);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Set Token Provider
+     */
+    function setTokenProvider(
+        address _token,
+        address _provider,
+        bool _auth
+    ) external onlyAuthBy0Admin returns (bool success) {
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _provider,
+            '.has.auth.for.',
+            _token
         ));
 
         /* Set value in Zer0net Db. */
-        _zer0netDb.setAddress(hash, _parent);
+        _zer0netDb.setBool(hash, _auth);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Set Mining Target
+     */
+    function _setMiningTarget(
+        address _token,
+        uint _target
+    ) private returns (bool success) {
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token,
+            '.target'
+        ));
+
+        /* Set value in Zer0net Db. */
+        _zer0netDb.setUint(hash, _target);
 
         /* Return success. */
         return true;
@@ -1366,23 +1090,53 @@ contract Minado is Owned {
      */
 
     /**
-     * ZeroGold Interface
+     * Supports Interface (EIP-165)
      *
-     * Retrieves the current ZeroGold interface,
-     * using the aname record from Zer0netDb.
+     * (see: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-165.md)
+     *
+     * NOTE: Must support the following conditions:
+     *       1. (true) when interfaceID is 0x01ffc9a7 (EIP165 interface)
+     *       2. (false) when interfaceID is 0xffffffff
+     *       3. (true) for any other interfaceID this contract implements
+     *       4. (false) for any other interfaceID
      */
-    function _zeroGold() private view returns (
-        ERC20Interface zeroGold
+    function supportsInterface(
+        bytes4 _interfaceID
+    ) external pure returns (bool) {
+        /* Initialize constants. */
+        bytes4 InvalidId = 0xffffffff;
+        bytes4 ERC165Id = 0x01ffc9a7;
+
+        /* Validate condition #2. */
+        if (_interfaceID == InvalidId) {
+            return false;
+        }
+
+        /* Validate condition #1. */
+        if (_interfaceID == ERC165Id) {
+            return true;
+        }
+
+        // TODO Add additional interfaces here.
+
+        /* Return false (for condition #4). */
+        return false;
+    }
+
+    /**
+     * ECRecovery Interface
+     */
+    function _ecRecovery() private view returns (
+        ECRecovery ecrecovery
     ) {
-        /* Initailze hash. */
-        // NOTE: ERC tokens are case-sensitive.
-        bytes32 hash = keccak256('aname.0GOLD');
+        /* Initialize hash. */
+        bytes32 hash = keccak256('aname.ecrecovery');
 
         /* Retrieve value from Zer0net Db. */
         address aname = _zer0netDb.getAddress(hash);
 
         /* Initialize interface. */
-        zeroGold = ERC20Interface(aname);
+        ecrecovery = ECRecovery(aname);
     }
 
     /**
@@ -1423,52 +1177,12 @@ contract Minado is Owned {
         infinityWell = InfinityWellInterface(aname);
     }
 
-    /**
-     * Staek(house) Factory Interface
-     *
-     * Retrieves the current Staek(house) Factory interface,
-     * using the aname record from Zer0netDb.
-     */
-    function _staekFactory() private view returns (
-        StaekFactoryInterface staekhouse
-    ) {
-        /* Initailze hash. */
-        bytes32 hash = keccak256('aname.staek.factory');
-
-        /* Retrieve value from Zer0net Db. */
-        address aname = _zer0netDb.getAddress(hash);
-
-        /* Initialize interface. */
-        staekhouse = StaekFactoryInterface(aname);
-    }
-
 
     /***************************************************************************
      *
      * UTILITIES
      *
      */
-
-    /**
-     * Is (Owner) Contract
-     *
-     * Tests if a specified account / address is a contract.
-     */
-    function _ownerIsContract(
-        address _owner
-    ) private view returns (bool isContract) {
-        /* Initialize code length. */
-        uint codeLength;
-
-        /* Run assembly. */
-        assembly {
-            /* Retrieve the size of the code on target address. */
-            codeLength := extcodesize(_owner)
-        }
-
-        /* Set test result. */
-        isContract = (codeLength > 0);
-    }
 
     /**
      * Bytes-to-Address
@@ -1512,20 +1226,5 @@ contract Minado is Owned {
     ) private pure returns (bytes result) {
         /* Pack the data. */
         return abi.encodePacked(_data);
-    }
-
-    /**
-     * Transfer Any ERC20 Token
-     *
-     * @notice Owner can transfer out any accidentally sent ERC20 tokens.
-     *
-     * @dev Provides an ERC20 interface, which allows for the recover
-     *      of any accidentally sent ERC20 tokens.
-     */
-    function transferAnyERC20Token(
-        address _tokenAddress,
-        uint _tokens
-    ) public onlyOwner returns (bool success) {
-        return ERC20Interface(_tokenAddress).transfer(owner, _tokens);
     }
 }
