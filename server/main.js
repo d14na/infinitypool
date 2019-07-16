@@ -1,14 +1,10 @@
 const http = require('http')
-const nano = require('nano')('http://localhost:5984')
 const nodeStatic = require('node-static')
 const sockjs = require('sockjs')
 const winston = require('winston')
 
 const ethers = require('ethers')
 const moment = require('moment')
-
-/* Initialize database connection. */
-const dbConn = nano.db.use('minado_sessions')
 
 /* Set keep-alive interval. */
 const KEEP_ALIVE_INTERVAL = 15000
@@ -84,8 +80,7 @@ ws.on('error', require('./handlers').error)
 /* Handle new client connection. */
 ws.on('connection', (_conn) => {
     let handler = require('./handlers').connection
-    let resp = handler(_conn, connPool, dbConn, logger)
-    // console.log('HANDLER RESPONSE', resp)
+    let resp = handler(_conn, connPool, logger)
 })
 
 /* Start listening (for incoming CLIENT connections). */
@@ -103,19 +98,3 @@ function _heartbeat () {
 
     this.isAlive = true
 }
-
-// const tryMint = async function () {
-//     /* Set ZeroGold address. */
-//     // FIXME Pull this from `db.0net.io`.
-//     const zgAddress = '0xf6E9Fc9eB4C20eaE63Cb2d7675F4dD48B008C531' // KOVAN
-//     let digest = '0x000002763fedf98e51de7076958e2d951b57dbb988f215c863fff5b50a0bf481'
-//     let nonce = '0xff2e37a8d854777ba0ceec1d1282dde7b74e5d2f66e1826d143eb2bd89436374'
-//
-//     const mint = require('./network').mint
-//     let tx = await mint(zgAddress, digest, nonce)
-//         .catch((_err) => { console.error(_err) })
-//
-//     console.log('TRANSACTION', tx)
-// }
-
-// tryMint()
